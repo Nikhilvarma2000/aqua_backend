@@ -298,9 +298,9 @@ func GetCustomerOrders(c *gin.Context) {
 
 	var orders []OrderWithProduct
 
-	// Use GORM's joins and select capabilities to get orders with product info
+	// Use GORM's joins to get orders with product info and successful payments
 	result := database.DB.Table("orders").
-		Select(`orders.id as id, 
+		Select(`DISTINCT orders.id as id, 
           orders.status, 
           orders.created_at, 
           orders.delivery_date, 
@@ -308,7 +308,8 @@ func GetCustomerOrders(c *gin.Context) {
           products.name as product_name, 
           products.image_url as product_image`).
 		Joins("JOIN products ON orders.product_id = products.id").
-		Where("orders.customer_id = ?", customerID).
+		Joins("JOIN payments ON orders.id = payments.order_id").
+		Where("orders.customer_id = ? AND payments.status = ?", customerID, "success").
 		Order("orders.created_at DESC").
 		Find(&orders)
 
