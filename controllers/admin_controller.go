@@ -103,12 +103,14 @@ func AdminGetOrders(c *gin.Context) {
 			userIDs = append(userIDs, u.ID)
 		}
 
-		// Get orders for these users
+		// Get orders for these users with successful payments
 		var orders []database.Order
 		if err := database.DB.Preload("Customer").
 			Preload("Product").
 			Preload("Franchise").
-			Where("customer_id IN ?", userIDs).
+			Joins("JOIN payments ON orders.id = payments.order_id").
+			Where("customer_id IN ? AND payments.status = ?", userIDs, "success").
+			Group("orders.id").
 			Find(&orders).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch orders"})
 			return
@@ -118,11 +120,14 @@ func AdminGetOrders(c *gin.Context) {
 		return
 	}
 
-	// For admin, get all orders
+	// For admin, get all orders with successful payments
 	var orders []database.Order
 	if err := database.DB.Preload("Customer").
 		Preload("Franchise").
 		Preload("Product").
+		Joins("JOIN payments ON orders.id = payments.order_id").
+		Where("payments.status = ?", "success").
+		Group("orders.id").
 		Find(&orders).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch orders"})
 		return
