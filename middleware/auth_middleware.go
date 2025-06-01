@@ -3,7 +3,6 @@ package middleware
 import (
 	"aquahome/database"
 	"aquahome/utils"
-	"fmt"
 	"net/http"
 	"strings"
 
