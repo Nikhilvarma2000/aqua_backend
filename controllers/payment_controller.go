@@ -4,6 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -21,7 +22,12 @@ import (
 
 // RazorpayOrderRequest contains data for creating a Razorpay order
 type RazorpayOrderRequest struct {
-	OrderID int64 `json:"order_id"`
+	ProductID       uint    `json:"product_id" binding:"required"`
+	FranchiseID     uint    `json:"franchise_id" binding:"required"`
+	ShippingAddress string  `json:"shipping_address" binding:"required"`
+	BillingAddress  string  `json:"billing_address" binding:"required"`
+	RentalDuration  int     `json:"rental_duration" binding:"required,min=1"`
+	Notes           string  `json:"notes"`
 }
 
 // PaymentVerificationRequest contains data for verifying a payment
@@ -38,7 +44,7 @@ type MonthlyPaymentRequest struct {
 	SubscriptionID int64 `json:"subscription_id" binding:"required"`
 }
 
-// GeneratePaymentOrder creates a Razorpay order for initial payment
+// GeneratePaymentOrder creates a new order and Razorpay order for payment
 func GeneratePaymentOrder(c *gin.Context) {
 	role, exists := c.Get("role")
 	if !exists || role != "customer" {
@@ -65,27 +71,57 @@ func GeneratePaymentOrder(c *gin.Context) {
 
 	var request RazorpayOrderRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request data"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request data: " + err.Error()})
 		return
 	}
 
-	// Check if the order exists and belongs to the customer
-	var order database.Order
-	result := database.DB.Where("id = ? AND customer_id = ?", request.OrderID, customerID).
-		First(&order)
+	// Start a transaction
+	tx := database.DB.Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
 
-	if result.Error != nil {
-		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Order not found or doesn't belong to you"})
+	// Get product details
+	var product database.Product
+	if err := tx.First(&product, request.ProductID).Error; err != nil {
+		tx.Rollback()
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
 			return
 		}
-		log.Printf("Database error: %v", result.Error)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Server error"})
+		log.Printf("Database error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch product details"})
 		return
 	}
 
-	if order.Status != database.OrderStatusPending {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Payment can only be generated for pending orders"})
+	// Calculate total amount
+	totalAmount := product.SecurityDeposit + product.InstallationFee
+	if request.RentalDuration > 0 {
+		totalAmount += product.MonthlyRent * float64(request.RentalDuration)
+	}
+
+	// Create order
+	order := database.Order{
+		CustomerID:         customerID,
+		ProductID:          request.ProductID,
+		FranchiseID:        request.FranchiseID,
+		OrderType:          "rental",
+		Status:             database.OrderStatusPending,
+		ShippingAddress:    request.ShippingAddress,
+		BillingAddress:     request.BillingAddress,
+		RentalDuration:     request.RentalDuration,
+		SecurityDeposit:    product.SecurityDeposit,
+		InstallationFee:    product.InstallationFee,
+		TotalInitialAmount: totalAmount,
+		Notes:              request.Notes,
+	}
+
+	if err := tx.Create(&order).Error; err != nil {
+		tx.Rollback()
+		log.Printf("Failed to create order: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create order"})
 		return
 	}
 
@@ -99,36 +135,48 @@ func GeneratePaymentOrder(c *gin.Context) {
 	data := map[string]interface{}{
 		"amount":   amountInPaise,
 		"currency": "INR",
-		"receipt":  fmt.Sprintf("order_%d", order.ID),
+		"receipt": fmt.Sprintf("order_%d", order.ID),
 		"notes": map[string]interface{}{
-			"customer_id":  customerID,
-			"order_id":     order.ID,
-			"payment_type": "initial",
+			"aquahome_order_id": order.ID,
+			"customer_id":       customerID,
+			"order_id":          order.ID,
+			"payment_type":      "initial",
 		},
 	}
 
 	razorpayOrder, err := client.Order.Create(data, nil)
 	if err != nil {
-		log.Printf("Razorpay order creation error: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error creating payment order"})
+		tx.Rollback()
+		log.Printf("Error creating Razorpay order: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create payment order"})
 		return
 	}
 
-	// Update payment record with Razorpay order ID
-	orderIDUint := uint(order.ID)
-	paymentDetails := fmt.Sprintf(`{"razorpay_order_id": "%s"}`, razorpayOrder["id"])
+	// Create payment record
+	payment := database.Payment{
+		CustomerID:     customerID,
+		OrderID:        &order.ID,
+		Amount:         order.TotalInitialAmount,
+		PaymentType:    "initial",
+		Status:         database.PaymentStatusPending,
+		PaymentMethod:  "razorpay",
+		TransactionID:  razorpayOrder["id"].(string),
+		PaymentDetails: toJSONString(razorpayOrder),
+	}
 
-	result = database.DB.Model(&database.Payment{}).
-		Where("order_id = ? AND payment_type = ? AND status = ?",
-			orderIDUint, "initial", database.PaymentStatusPending).
-		Updates(map[string]interface{}{
-			"transaction_id":  razorpayOrder["id"],
-			"payment_details": paymentDetails,
-		})
+	if err := tx.Create(&payment).Error; err != nil {
+		tx.Rollback()
+		log.Printf("Failed to create payment record: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create payment record"})
+		return
+	}
 
-	if result.Error != nil {
-		log.Printf("Database error updating payment: %v", result.Error)
-		// Continue anyway, we'll update it during verification
+	// Commit transaction
+	if err := tx.Commit().Error; err != nil {
+		tx.Rollback()
+		log.Printf("Failed to commit transaction: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Transaction failed"})
+		return
 	}
 
 	// Return necessary information for the frontend
@@ -762,10 +810,20 @@ func generateMonthlyInvoiceNumber(subscriptionID uint) string {
 	return "INV-M-" + timestamp + "-" + strconv.FormatUint(uint64(subscriptionID), 10)
 }
 
-func verifyRazorpaySignature(data, signature, secret string) bool {
+// toJSONString converts an interface to a JSON string
+func toJSONString(v interface{}) string {
+	data, err := json.Marshal(v)
+	if err != nil {
+		log.Printf("Error marshaling to JSON: %v", err)
+		return "{}"
+	}
+	return string(data)
+}
 
-	h := hmac.New(sha256.New, []byte(secret))
-	h.Write([]byte(data))
-	expectedSignature := hex.EncodeToString(h.Sum(nil))
-	return expectedSignature == signature
+// verifyRazorpaySignature verifies the signature from Razorpay
+func verifyRazorpaySignature(data, signature, secret string) bool {
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(data))
+	expectedSignature := hex.EncodeToString(mac.Sum(nil))
+	return hmac.Equal([]byte(expectedSignature), []byte(signature))
 }
