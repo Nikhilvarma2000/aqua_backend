@@ -387,12 +387,9 @@ func AssignServiceRequestToAgent(c *gin.Context) {
 	}
 	fmt.Println("🔥 Received Payload: ", serviceRequestIDInt)
 
-
 	var req struct {
 		ServiceAgentID uint `json:"service_agent_id" binding:"required"`
 	}
-
-
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
@@ -851,19 +848,33 @@ func UpdateServiceRequest(c *gin.Context) {
 // CancelServiceRequest cancels a service request (customer endpoint)
 func CancelServiceRequest(c *gin.Context) {
 	requestID := c.Param("id")
+	role, exists := c.Get("role")
+	if !exists{
+		c.JSON(http.StatusForbidden, gin.H{"error": "Permission denied"})
+		return
+	}
+
 	requestIDInt, err := strconv.ParseUint(requestID, 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request ID"})
 		return
 	}
 
-	userID := c.GetString("user_id")
-	userIDInt, err := strconv.ParseUint(userID, 10, 64)
-	if err != nil {
-		log.Printf("Invalid user ID: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+	fmt.Println("id ", requestID)
+
+	userIDInterface, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found"})
 		return
 	}
+	userIDInt, ok := userIDInterface.(uint)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid user ID type"})
+		return
+	}
+	
+
+	fmt.Println("usrIdv ", userIDInt)
 
 	// Check if service request exists and belongs to the user
 	var serviceRequest database.ServiceRequest
@@ -882,7 +893,7 @@ func CancelServiceRequest(c *gin.Context) {
 	// Check if the service request can be cancelled
 	if serviceRequest.Status != database.ServiceStatusPending &&
 		serviceRequest.Status != database.ServiceStatusAssigned &&
-		serviceRequest.Status != database.ServiceStatusScheduled {
+		serviceRequest.Status != database.ServiceStatusScheduled && role != "customer" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Service request cannot be cancelled in its current state"})
 		return
 	}
