@@ -488,7 +488,7 @@ type UpdateOrderStatusRequest struct {
 func UpdateOrderStatus(c *gin.Context) {
 	role, exists := c.Get("role")
 	fmt.Println("Role:", role)
-	if !exists || (role != "admin" && role != "franchise_owner") {
+	if !exists {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Permission denied"})
 		return
 	}
@@ -508,7 +508,7 @@ func UpdateOrderStatus(c *gin.Context) {
 	}
 
 	fmt.Println("✅ Request data parsed successfully")
-	if role == "service_agent" && statusRequest.Status != "cancelled" {
+	if role == "service_agent" && statusRequest.Status == "cancelled" {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Permission denied"})
 		return
 	}
