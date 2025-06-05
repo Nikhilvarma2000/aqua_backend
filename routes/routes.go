@@ -26,8 +26,8 @@ func SetupRoutes(r *gin.Engine) {
 		}
 
 		// Products (public view for non-authenticated users)
-		public.GET("/products", controllers.GetProducts)
-		public.GET("/products/:id", controllers.GetProductByID)
+		// public.GET("/products", controllers.GetProducts)
+		// public.GET("/products/:id", controllers.GetProductByID)
 	}
 
 	// Protected routes (authentication required)
@@ -46,10 +46,9 @@ func SetupRoutes(r *gin.Engine) {
 		protected.PUT("/profile/v2", controllers.UpdateUserProfileNew)
 		protected.POST("/profile/location", controllers.UpdateUserLocation)
 		protected.POST("/profile/change-password/v2", controllers.ChangePasswordNew)
-		protected.PATCH("/servicerequests/:id/assign-agent",middleware.AdminOrFranchiseAuthMiddleware(), controllers.AssignServiceRequestToAgent)
-	
-		// protected.POST("/customer/service-requests",controllers.CreateServiceRequest)
+		protected.PATCH("/servicerequests/:id/assign-agent", middleware.AdminOrFranchiseAuthMiddleware(), controllers.AssignServiceRequestToAgent)
 
+		// protected.POST("/customer/service-requests",controllers.CreateServiceRequest)
 
 		// Admin routes
 		// Admin routes
@@ -147,7 +146,6 @@ func SetupRoutes(r *gin.Engine) {
 			franchises.POST("/locations", controllers.AddFranchiseLocations)
 			franchises.PUT("/:id/locations", controllers.UpdateFranchiseLocations)
 			franchises.GET("/locations", controllers.GetMyLocations)
-
 
 			//this route for dashboard
 			franchises.GET("/dashboard", controllers.GetFranchiseDashboard)
