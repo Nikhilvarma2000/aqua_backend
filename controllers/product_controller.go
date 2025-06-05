@@ -165,7 +165,7 @@ func UpdateProduct(c *gin.Context) {
 	product.Specifications = productRequest.Specifications
 	product.MaintenanceCycle = productRequest.MaintenanceCycle
 	product.IsActive = productRequest.IsActive
-	product.FranchiseID = productRequest.FranchiseID // ✅ Also update
+	product.FranchiseID = productRequest.FranchiseID //  Also update
 
 	result = database.DB.Save(&product)
 	if result.Error != nil {

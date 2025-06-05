@@ -26,8 +26,7 @@ func SetupRoutes(r *gin.Engine) {
 		}
 
 		// Products (public view for non-authenticated users)
-		// public.GET("/products", controllers.GetProducts)
-		// public.GET("/products/:id", controllers.GetProductByID)
+
 	}
 
 	// Protected routes (authentication required)
@@ -65,7 +64,7 @@ func SetupRoutes(r *gin.Engine) {
 			// ✅ Products Management
 			admin.POST("/products", controllers.CreateProduct)
 			admin.GET("/products", controllers.GetProducts)
-			admin.GET("/products/:id", controllers.GetProductByID)
+			admin.GET("/products/:id", controllers.GetProducts)
 			admin.PUT("/products/:id", controllers.UpdateProduct)
 			admin.DELETE("/products/:id", controllers.DeleteProduct)
 			admin.PATCH("/products/:id/toggle-status", controllers.ToggleProductStatus)
@@ -131,7 +130,6 @@ func SetupRoutes(r *gin.Engine) {
 			services.PUT("/:id", controllers.UpdateServiceRequestNew)
 
 		}
-		// Service agents
 
 		// Franchises
 		franchises := protected.Group("/franchises")
