@@ -61,25 +61,25 @@ func SetupRoutes(r *gin.Engine) {
 			admin.GET("/users/role/:role/v2", controllers.GetUsersByRoleNew)
 			admin.GET("/dashboard", controllers.AdminDashboard)
 
-			// ✅ Products Management
+			//  Products Management
 			admin.POST("/products", controllers.CreateProduct)
 			admin.GET("/products", controllers.GetProducts)
-			admin.GET("/products/:id", controllers.GetProducts)
+			admin.GET("/products/:id", controllers.GetProductByID)
 			admin.PUT("/products/:id", controllers.UpdateProduct)
 			admin.DELETE("/products/:id", controllers.DeleteProduct)
 			admin.PATCH("/products/:id/toggle-status", controllers.ToggleProductStatus)
 
-			// ✅ Franchise Management
+			//  Franchise Management
 			admin.PATCH("/franchises/:id", controllers.AdminUpdateFranchise)
 			admin.POST("/franchises", controllers.CreateFranchise)
 			admin.GET("/franchises", controllers.GetAllFranchises)
 			admin.PATCH("/franchises/:id/toggle-status", controllers.ToggleFranchiseStatus)
 
-			// ✅ Orders
+			//  Orders
 			admin.PATCH("/orders/:id/assign", controllers.AssignOrderToFranchise)
 			admin.GET("/customers/:id/subscriptions", controllers.GetCustomerSubscriptionsByAdmin)
 
-			// ✅ NEW: Locations
+			// NEW: Locations
 			admin.GET("/locations", controllers.GetAllLocations)
 		}
 
