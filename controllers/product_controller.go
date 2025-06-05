@@ -3,11 +3,8 @@ package controllers
 import (
 	"errors"
 	"log"
-	"mime/multipart"
 	"net/http"
-	"path/filepath" //  ADD THIS IMPORT
 	"strconv"
-	"time" //  ADD THIS IMPORT, often needed for unique filenames
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -15,21 +12,19 @@ import (
 	"aquahome/database"
 )
 
-// 🆕 MODIFIED: ProductRequest to handle file upload instead of direct ImageURL
+// ProductRequest contains the data for product creation or update
 type ProductRequest struct {
-	Name             string  `form:"name" binding:"required"` // 🆕 Changed to `form` tag
-	Description      string  `form:"description" binding:"required"`
-	MonthlyRent      float64 `form:"monthly_rent" binding:"required"`
-	SecurityDeposit  float64 `form:"security_deposit" binding:"required"`
-	InstallationFee  float64 `form:"installation_fee" binding:"required"`
-	AvailableStock   int     `form:"available_stock" binding:"required"`
-	Specifications   string  `form:"specifications"`
-	MaintenanceCycle int     `form:"maintenance_cycle"`
-	IsActive         bool    `form:"is_active"`
-	FranchiseID      uint    `form:"franchise_id" binding:"required"`
-	// ImageURL         string  `json:"image_url"` // ❌ REMOVE THIS LINE
-	// 🆕 ADD THIS FIELD to receive the uploaded file
-	ImageFile *multipart.FileHeader `form:"image_file"` //  Correct type
+	Name             string  `json:"name" binding:"required"`
+	Description      string  `json:"description" binding:"required"`
+	ImageURL         string  `json:"image_url"`
+	MonthlyRent      float64 `json:"monthly_rent" binding:"required"`
+	SecurityDeposit  float64 `json:"security_deposit" binding:"required"`
+	InstallationFee  float64 `json:"installation_fee" binding:"required"`
+	AvailableStock   int     `json:"available_stock" binding:"required"`
+	Specifications   string  `json:"specifications"`
+	MaintenanceCycle int     `json:"maintenance_cycle"`
+	IsActive         bool    `json:"is_active"`
+	FranchiseID      uint    `json:"franchise_id" binding:"required"` // ✅ Add this
 }
 
 // CreateProduct creates a new product (Admin only)
@@ -40,87 +35,94 @@ func CreateProduct(c *gin.Context) {
 		return
 	}
 
-	var request ProductRequest
-	// 🆕 Use c.ShouldBind to parse multipart form data
-	if err := c.ShouldBind(&request); err != nil { // 🆕 Changed from ShouldBindJSON
-		log.Println("Product creation bind error:", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	var productRequest ProductRequest
+	if err := c.ShouldBindJSON(&productRequest); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request data"})
 		return
 	}
 
-	// Handle image upload
-	var imageURL string
-	if request.ImageFile != nil {
-		// Define upload directory
-		uploadDir := "./uploads/products" // 🆕 Ensure this directory exists relative to your executable
-		// Create a unique filename
-		filename := strconv.FormatInt(time.Now().UnixNano(), 10) + filepath.Ext(request.ImageFile.Filename)
-		filePath := filepath.Join(uploadDir, filename)
+	if productRequest.MaintenanceCycle == 0 {
+		productRequest.MaintenanceCycle = 90 // Default 90 days
+	}
 
-		// Save the file
-		if err := c.SaveUploadedFile(request.ImageFile, filePath); err != nil {
-			log.Println("Failed to save image:", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save image file"})
-			return
-		}
-		imageURL = "/uploads/products/" + filename // Store relative URL for frontend access
+	// Validate that the FranchiseID exists in the system
+	var franchise database.Franchise
+	if err := database.DB.First(&franchise, productRequest.FranchiseID).Error; err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid Franchise ID"})
+		return
 	}
 
 	product := database.Product{
-		Name:             request.Name,
-		Description:      request.Description,
-		MonthlyRent:      request.MonthlyRent,
-		SecurityDeposit:  request.SecurityDeposit,
-		InstallationFee:  request.InstallationFee,
-		AvailableStock:   request.AvailableStock,
-		Specifications:   request.Specifications,
-		MaintenanceCycle: request.MaintenanceCycle,
-		IsActive:         request.IsActive,
-		FranchiseID:      request.FranchiseID,
-		ImageURL:         imageURL, // 🆕 Save the generated image URL
+		Name:             productRequest.Name,
+		Description:      productRequest.Description,
+		ImageURL:         productRequest.ImageURL,
+		MonthlyRent:      productRequest.MonthlyRent,
+		SecurityDeposit:  productRequest.SecurityDeposit,
+		InstallationFee:  productRequest.InstallationFee,
+		AvailableStock:   productRequest.AvailableStock,
+		Specifications:   productRequest.Specifications,
+		MaintenanceCycle: productRequest.MaintenanceCycle,
+		IsActive:         productRequest.IsActive,
+		FranchiseID:      productRequest.FranchiseID, // ✅ Important
 	}
 
-	if err := database.DB.Create(&product).Error; err != nil {
-		log.Println("Product creation DB error:", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create product"})
+	result := database.DB.Create(&product)
+	if result.Error != nil {
+		log.Printf("Database error: %v", result.Error)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error creating product"})
 		return
 	}
 
 	c.JSON(http.StatusCreated, product)
 }
 
-// GetProduct retrieves a product by ID
-func GetProduct(c *gin.Context) {
-	id := c.Param("id")
-	var product database.Product
-	if err := database.DB.First(&product, id).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
-		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve product"})
-		}
-		return
-	}
-	c.JSON(http.StatusOK, product)
-}
-
-// GetAllProducts retrieves all products (Admin only)
-func GetAllProducts(c *gin.Context) {
-	role, exists := c.Get("role")
-	if !exists || role != "admin" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Permission denied"})
-		return
-	}
-
+// GetProducts gets all products (admin sees all, customer/public sees all but can only order active ones)
+func GetProducts(c *gin.Context) {
 	var products []database.Product
-	if err := database.DB.Find(&products).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve products"})
+
+	query := database.DB.Preload("Franchise") // 👈 preload franchise
+
+	roleInterface, exists := c.Get("role")
+	if exists {
+		role := roleInterface.(string)
+		if role == "customer" {
+			query = query.Where("is_active = ?", true)
+		}
+	}
+
+	if err := query.Find(&products).Error; err != nil {
+		log.Println("GetProducts DB error:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get products"})
 		return
 	}
+
 	c.JSON(http.StatusOK, products)
 }
 
-// UpdateProduct updates an existing product (Admin only)
+// GetProductByID gets a product by ID
+func GetProductByID(c *gin.Context) {
+	id := c.Param("id")
+	var product database.Product
+
+	if err := database.DB.Preload("Franchise").First(&product, id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "DB error"})
+		}
+		return
+	}
+
+	roleInterface, _ := c.Get("role")
+	if role, ok := roleInterface.(string); ok && role == "customer" && !product.IsActive {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Product not available"})
+		return
+	}
+
+	c.JSON(http.StatusOK, product)
+}
+
+// UpdateProduct updates a product (Admin only)
 func UpdateProduct(c *gin.Context) {
 	role, exists := c.Get("role")
 	if !exists || role != "admin" {
@@ -128,62 +130,54 @@ func UpdateProduct(c *gin.Context) {
 		return
 	}
 
-	id := c.Param("id")
+	productIDStr := c.Param("id")
+	productID, err := strconv.ParseUint(productIDStr, 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid product ID"})
+		return
+	}
+
+	var productRequest ProductRequest
+	if err := c.ShouldBindJSON(&productRequest); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request data"})
+		return
+	}
+
 	var product database.Product
-	if err := database.DB.First(&product, id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
-		return
-	}
-
-	var request ProductRequest
-	// 🆕 Use c.ShouldBind to parse multipart form data
-	if err := c.ShouldBind(&request); err != nil { // 🆕 Changed from ShouldBindJSON
-		log.Println("Product update bind error:", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	// Handle image upload for update
-	var imageURL string
-	if request.ImageFile != nil {
-		uploadDir := "./uploads/products"
-		filename := strconv.FormatInt(time.Now().UnixNano(), 10) + filepath.Ext(request.ImageFile.Filename)
-		filePath := filepath.Join(uploadDir, filename)
-
-		if err := c.SaveUploadedFile(request.ImageFile, filePath); err != nil {
-			log.Println("Failed to save updated image:", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save updated image file"})
+	result := database.DB.First(&product, uint(productID))
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
 			return
 		}
-		imageURL = "/uploads/products/" + filename
-	} else {
-		// If no new image is uploaded, retain the existing one
-		imageURL = product.ImageURL
+		log.Printf("Database error: %v", result.Error)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Server error"})
+		return
 	}
 
-	// Update product fields from request
-	product.Name = request.Name
-	product.Description = request.Description
-	product.MonthlyRent = request.MonthlyRent
-	product.SecurityDeposit = request.SecurityDeposit
-	product.InstallationFee = request.InstallationFee
-	product.AvailableStock = request.AvailableStock
-	product.Specifications = request.Specifications
-	product.MaintenanceCycle = request.MaintenanceCycle
-	product.IsActive = request.IsActive
-	product.FranchiseID = request.FranchiseID
-	product.ImageURL = imageURL // 🆕 Update with new or existing image URL
+	product.Name = productRequest.Name
+	product.Description = productRequest.Description
+	product.ImageURL = productRequest.ImageURL
+	product.MonthlyRent = productRequest.MonthlyRent
+	product.SecurityDeposit = productRequest.SecurityDeposit
+	product.InstallationFee = productRequest.InstallationFee
+	product.AvailableStock = productRequest.AvailableStock
+	product.Specifications = productRequest.Specifications
+	product.MaintenanceCycle = productRequest.MaintenanceCycle
+	product.IsActive = productRequest.IsActive
+	product.FranchiseID = productRequest.FranchiseID // ✅ Also update
 
-	if err := database.DB.Save(&product).Error; err != nil {
-		log.Println("Product update DB error:", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update product"})
+	result = database.DB.Save(&product)
+	if result.Error != nil {
+		log.Printf("Database error: %v", result.Error)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error updating product"})
 		return
 	}
 
 	c.JSON(http.StatusOK, product)
 }
 
-// DeleteProduct deletes a product by ID (Admin only)
+// DeleteProduct permanently deletes a product (Admin only)
 func DeleteProduct(c *gin.Context) {
 	role, exists := c.Get("role")
 	if !exists || role != "admin" {
@@ -191,29 +185,37 @@ func DeleteProduct(c *gin.Context) {
 		return
 	}
 
-	id := c.Param("id")
+	productIDStr := c.Param("id")
+	productID, err := strconv.ParseUint(productIDStr, 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid product ID"})
+		return
+	}
+
 	var product database.Product
-	if err := database.DB.First(&product, id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
+	result := database.DB.First(&product, uint(productID))
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
+			return
+		}
+		log.Printf("Database error: %v", result.Error)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Server error"})
 		return
 	}
 
-	if err := database.DB.Delete(&product).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete product"})
+	result = database.DB.Delete(&product)
+	if result.Error != nil {
+		log.Printf("Database error: %v", result.Error)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error deleting product"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Product deleted successfully"})
+	c.JSON(http.StatusOK, gin.H{"message": "Product deleted permanently"})
 }
 
-// ToggleProductStatus toggles the active status of a product (Admin only)
+// ToggleProductStatus toggles the IsActive status of a product (Admin only)
 func ToggleProductStatus(c *gin.Context) {
-	role, exists := c.Get("role")
-	if !exists || role != "admin" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Permission denied"})
-		return
-	}
-
 	id := c.Param("id")
 	var product database.Product
 
@@ -238,7 +240,6 @@ func ToggleProductStatus(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, product)
 }
-
 func GetCustomerProducts(c *gin.Context) {
 	user, exists := c.Get("user")
 	if !exists {
@@ -254,13 +255,13 @@ func GetCustomerProducts(c *gin.Context) {
 
 	var products []database.Product
 	err := database.DB.
-		Where("is_active = ?", true).
-		Joins("JOIN franchises ON products.franchise_id = franchises.id").
-		Where("franchises.zip_code = ?", customer.ZipCode).
+		Preload("Franchise").
+		Joins("JOIN franchises ON franchises.id = products.franchise_id").
+		Where("products.is_active = ? AND franchises.is_active = ? AND franchises.zip_code = ?", true, true, customer.ZipCode).
 		Find(&products).Error
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve products for customer's ZIP code"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch products"})
 		return
 	}
 

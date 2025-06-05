@@ -26,7 +26,8 @@ func SetupRoutes(r *gin.Engine) {
 		}
 
 		// Products (public view for non-authenticated users)
-
+		public.GET("/products", controllers.GetProducts)
+		public.GET("/products/:id", controllers.GetProductByID)
 	}
 
 	// Protected routes (authentication required)
@@ -41,13 +42,14 @@ func SetupRoutes(r *gin.Engine) {
 		protected.PUT("/profile", controllers.UpdateUserProfile)
 		protected.POST("/profile/change-password", controllers.ChangePassword)
 		protected.GET("/profile/v2", controllers.GetUserProfileNew)
-		//protected.GET("/customer/products", controllers.GetCustomerProducts)
+		protected.GET("/customer/products", controllers.GetCustomerProducts)
 		protected.PUT("/profile/v2", controllers.UpdateUserProfileNew)
 		protected.POST("/profile/location", controllers.UpdateUserLocation)
 		protected.POST("/profile/change-password/v2", controllers.ChangePasswordNew)
-		protected.PATCH("/servicerequests/:id/assign-agent", middleware.AdminOrFranchiseAuthMiddleware(), controllers.AssignServiceRequestToAgent)
-
+		protected.PATCH("/servicerequests/:id/assign-agent",middleware.AdminOrFranchiseAuthMiddleware(), controllers.AssignServiceRequestToAgent)
+	
 		// protected.POST("/customer/service-requests",controllers.CreateServiceRequest)
+
 
 		// Admin routes
 		// Admin routes
@@ -63,8 +65,8 @@ func SetupRoutes(r *gin.Engine) {
 
 			// ✅ Products Management
 			admin.POST("/products", controllers.CreateProduct)
-			admin.GET("/products", controllers.GetAllProducts)
-			admin.GET("/products/:id", controllers.GetProduct)
+			admin.GET("/products", controllers.GetProducts)
+			admin.GET("/products/:id", controllers.GetProductByID)
 			admin.PUT("/products/:id", controllers.UpdateProduct)
 			admin.DELETE("/products/:id", controllers.DeleteProduct)
 			admin.PATCH("/products/:id/toggle-status", controllers.ToggleProductStatus)
@@ -145,6 +147,7 @@ func SetupRoutes(r *gin.Engine) {
 			franchises.POST("/locations", controllers.AddFranchiseLocations)
 			franchises.PUT("/:id/locations", controllers.UpdateFranchiseLocations)
 			franchises.GET("/locations", controllers.GetMyLocations)
+
 
 			//this route for dashboard
 			franchises.GET("/dashboard", controllers.GetFranchiseDashboard)
