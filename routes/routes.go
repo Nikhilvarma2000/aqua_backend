@@ -41,7 +41,7 @@ func SetupRoutes(r *gin.Engine) {
 		protected.PUT("/profile", controllers.UpdateUserProfile)
 		protected.POST("/profile/change-password", controllers.ChangePassword)
 		protected.GET("/profile/v2", controllers.GetUserProfileNew)
-		protected.GET("/customer/products", controllers.GetCustomerProducts)
+		//protected.GET("/customer/products", controllers.GetCustomerProducts)
 		protected.PUT("/profile/v2", controllers.UpdateUserProfileNew)
 		protected.POST("/profile/location", controllers.UpdateUserLocation)
 		protected.POST("/profile/change-password/v2", controllers.ChangePasswordNew)

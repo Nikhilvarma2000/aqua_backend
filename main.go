@@ -2,38 +2,25 @@ package main
 
 import (
 	"log"
-	"os"
+	"os" // Import os for directory checks
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 
 	"aquahome/config"
+	"aquahome/controllers" // Add controllers to directly define a public route
 	"aquahome/database"
-	"aquahome/routes"
+	"aquahome/routes" // Keep this for existing route setup
 )
 
 func main() {
-
-	// 🔐 TEMP: Print hash for admin password
-	// hashed, err := utils.HashPassword("admin123")
-	// if err != nil {
-	// 	log.Fatalf("❌ Failed to hash password: %v", err)
-	// }
-	// fmt.Println("🔐 Hashed password for 'admin123':", hashed)
-	// os.Exit(0) // Exit here to stop rest of the app
-	// Load environment variables (optional for local dev)
 	_ = godotenv.Load()
-
-	// Initialize config
 	config.InitConfig()
 
-	// Initialize PostgreSQL DB
 	if err := database.InitDB(); err != nil {
 		log.Fatalf("❌ Failed to initialize GORM database: %v", err)
 	}
-
-	// Auto-migrate all models (commented out to prevent auto-migration)
 
 	if err := database.DB.AutoMigrate(
 		&database.User{},
@@ -50,19 +37,10 @@ func main() {
 	}
 
 	log.Println("✅ Database migration skipped (commented out in main.go)")
-
-	// ✅ Seed default admin if not exists
 	database.SeedDefaultAdmin()
 
-	// // (Optional) Initialize any legacy DB (only if needed)
-	// if err := database.InitLegacyDB(); err != nil {
-	// 	log.Fatalf("❌ Failed to initialize legacy database: %v", err)
-	// }
-
-	// Setup Gin router
 	r := gin.Default()
 
-	// Enable CORS for all origins
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"*"},
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
@@ -71,18 +49,38 @@ func main() {
 		AllowCredentials: true,
 	}))
 
-	// Setup all API routes
-	routes.SetupRoutes(r)
+	// 🆕 START: ADD THESE LINES FOR STATIC FILE SERVING
+	// This makes files in ./uploads accessible via /uploads/*
+	r.Static("/uploads", "./uploads")
+	log.Println("Serving static files from /uploads to ./uploads directory")
 
-	// Print all registered routes
+	// Ensure the 'uploads/products' directory exists
+	// This will prevent errors if the directory is missing when saving files.
+	if _, err := os.Stat("./uploads/products"); os.IsNotExist(err) {
+		err := os.MkdirAll("./uploads/products", 0755) // 0755 permissions
+		if err != nil {
+			log.Fatalf("Failed to create uploads/products directory: %v", err)
+		}
+		log.Println("Created ./uploads/products directory")
+	}
+	// 🆕 END: ADD THESE LINES FOR STATIC FILE SERVING
+
+	// 🆕 START: Public routes that do NOT require authentication
+	// Move GetCustomerProducts here if it should be accessible without logging in
+	// If it *requires* a logged-in customer, keep it within an authenticated group (not admin-specific)
+	r.GET("/api/products", controllers.GetCustomerProducts) //
+	// 🆕 END: Public routes
+
+	// Setup all other API routes using your existing routes.SetupRoutes function
+	routes.SetupRoutes(r) //
+
 	for _, route := range r.Routes() {
 		log.Printf("🔗 %s %s", route.Method, route.Path)
 	}
 
-	// Start server
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = "5000" // default port for local
+		port = "5000"
 	}
 	log.Printf("🚀 Server running at http://0.0.0.0:%s", port)
 
